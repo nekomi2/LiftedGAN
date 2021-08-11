@@ -12,7 +12,7 @@ log_base_dir = './log_ffhq_256/'
 print_interval = 10
 
 # The interval between writing summary
-summary_interval = 500
+summary_interval = 250
 
 # Number of samples to generate for validation
 n_samples = 32
