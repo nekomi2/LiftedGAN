@@ -14,6 +14,8 @@ import torch
 import torchvision
 from tensorboardX import SummaryWriter
 
+import wandb
+   
 
 def test_batch(model, code, batch_size, keys=None):
     results = {}
@@ -44,6 +46,7 @@ def main(args):
     network.initialize(config)
 
     # Initalization for running
+    wandb.init(project="LiftedGAN",sync_tensorboard=True)
     log_dir = utils.create_log_dir(config.log_base_dir, config.name, config_file)
     summary_writer = SummaryWriter(log_dir)
     if config.restore_model:
@@ -79,10 +82,11 @@ def main(args):
         images = utils.stack_images(results['recon_im'], results['canon_im'])
         torchvision.utils.save_image(images, f'{log_dir}/samples/{global_step}.jpg', nrow=8, normalize=True)
         network.save_model(log_dir, epoch+1)
-
+        wandb.save(os.path.join(log_dir, "checkpoint*"))
 if __name__=="__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("config_file", help="The path to the training configuration file",
                         type=str)
     args = parser.parse_args()
     main(args)
+
