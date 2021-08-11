@@ -398,8 +398,8 @@ class Generator(nn.Module):
             64: 64,
             128: 32,
             256: 16,
-            # 512: 32 * channel_multiplier,
-            # 1024: 16 * channel_multiplier,
+            512: 32 * channel_multiplier,
+            1024: 16 * channel_multiplier,
         }
 
         self.input = ConstantInput(self.channels[4])

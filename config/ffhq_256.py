@@ -49,7 +49,7 @@ epoch_size = 5000
 learning_rate = 1e-4
 
 # The path to the checkpoint
-restore_model = None
+restore_model = './pretrained/checkpoint_001.pth'
 
 
 ## Model and Loss
