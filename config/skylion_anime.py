@@ -79,7 +79,7 @@ generator_texture = True
 
 renderer_params = {
     'device': 'cuda',
-    'image_size': 256,
+    'image_size': 512,
     'rot_center_depth': 1.00,
     'fov': 10, # in degrees
     'tex_cube_size': 2,

@@ -18,7 +18,7 @@ try:
 except ImportError:
     wandb = None
 
-from model import Generator, Discriminator
+
 from dataset import MultiResolutionDataset
 from distributed import (
     get_rank,
@@ -27,7 +27,8 @@ from distributed import (
     reduce_sum,
     get_world_size,
 )
-from non_leaking import augment
+from op import conv2d_gradfix
+from non_leaking import augment, AdaptiveAugment
 
 
 def data_sampler(dataset, shuffle, distributed):
@@ -68,9 +69,10 @@ def d_logistic_loss(real_pred, fake_pred):
 
 
 def d_r1_loss(real_pred, real_img):
-    grad_real, = autograd.grad(
-        outputs=real_pred.sum(), inputs=real_img, create_graph=True
-    )
+    with conv2d_gradfix.no_weight_gradients():
+        grad_real, = autograd.grad(
+            outputs=real_pred.sum(), inputs=real_img, create_graph=True
+        )
     grad_penalty = grad_real.pow(2).reshape(grad_real.shape[0], -1).sum(1).mean()
 
     return grad_penalty
@@ -148,10 +150,11 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
         d_module = discriminator
 
     accum = 0.5 ** (32 / (10 * 1000))
-    ada_augment = torch.tensor([0.0, 0.0], device=device)
     ada_aug_p = args.augment_p if args.augment_p > 0 else 0.0
-    ada_aug_step = args.ada_target / args.ada_length
     r_t_stat = 0
+
+    if args.augment and args.augment_p == 0:
+        ada_augment = AdaptiveAugment(args.ada_target, args.ada_length, 8, device)
 
     sample_z = torch.randn(args.n_sample, args.latent, device=device)
 
@@ -192,31 +195,21 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
         d_optim.step()
 
         if args.augment and args.augment_p == 0:
-            ada_augment_data = torch.tensor(
-                (torch.sign(real_pred).sum().item(), real_pred.shape[0]), device=device
-            )
-            ada_augment += reduce_sum(ada_augment_data)
-
-            if ada_augment[1] > 255:
-                pred_signs, n_pred = ada_augment.tolist()
-
-                r_t_stat = pred_signs / n_pred
-
-                if r_t_stat > args.ada_target:
-                    sign = 1
-
-                else:
-                    sign = -1
-
-                ada_aug_p += sign * ada_aug_step * n_pred
-                ada_aug_p = min(1, max(0, ada_aug_p))
-                ada_augment.mul_(0)
+            ada_aug_p = ada_augment.tune(real_pred)
+            r_t_stat = ada_augment.r_t_stat
 
         d_regularize = i % args.d_reg_every == 0
 
         if d_regularize:
             real_img.requires_grad = True
-            real_pred = discriminator(real_img)
+
+            if args.augment:
+                real_img_aug, _ = augment(real_img, ada_aug_p)
+
+            else:
+                real_img_aug = real_img
+
+            real_pred = discriminator(real_img_aug)
             r1_loss = d_r1_loss(real_pred, real_img)
 
             discriminator.zero_grad()
@@ -309,13 +302,13 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                     }
                 )
 
-            if i % 1000 == 0:
+            if i % 100 == 0:
                 with torch.no_grad():
                     g_ema.eval()
                     sample, _ = g_ema([sample_z])
                     utils.save_image(
                         sample,
-                        f"sample{args.subfix}/{str(i).zfill(6)}.jpg",
+                        f"sample/{str(i).zfill(6)}.png",
                         nrow=int(args.n_sample ** 0.5),
                         normalize=True,
                         range=(-1, 1),
@@ -332,36 +325,108 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                         "args": args,
                         "ada_aug_p": ada_aug_p,
                     },
-                    f"checkpoint{args.subfix}/{str(i).zfill(6)}.pt",
+                    f"checkpoint/{str(i).zfill(6)}.pt",
                 )
 
 
 if __name__ == "__main__":
     device = "cuda"
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="StyleGAN2 trainer")
 
-    parser.add_argument("path", type=str)
-    parser.add_argument("--subfix", type=str, default="", help="subfix for saving samples and checkpoints.")
-    parser.add_argument("--iter", type=int, default=800000)
-    parser.add_argument("--batch", type=int, default=16)
-    parser.add_argument("--n_sample", type=int, default=64)
-    parser.add_argument("--size", type=int, default=256)
-    parser.add_argument("--r1", type=float, default=10)
-    parser.add_argument("--path_regularize", type=float, default=2)
-    parser.add_argument("--path_batch_shrink", type=int, default=2)
-    parser.add_argument("--d_reg_every", type=int, default=16)
-    parser.add_argument("--g_reg_every", type=int, default=4)
-    parser.add_argument("--mixing", type=float, default=0.9)
-    parser.add_argument("--ckpt", type=str, default=None)
-    parser.add_argument("--lr", type=float, default=0.002)
-    parser.add_argument("--channel_multiplier", type=int, default=2)
-    parser.add_argument("--wandb", action="store_true")
-    parser.add_argument("--local_rank", type=int, default=0)
-    parser.add_argument("--augment", action="store_true")
-    parser.add_argument("--augment_p", type=float, default=0)
-    parser.add_argument("--ada_target", type=float, default=0.6)
-    parser.add_argument("--ada_length", type=int, default=500 * 1000)
+    parser.add_argument("path", type=str, help="path to the lmdb dataset")
+    parser.add_argument('--arch', type=str, default='stylegan2', help='model architectures (stylegan2 | swagan)')
+    parser.add_argument(
+        "--iter", type=int, default=800000, help="total training iterations"
+    )
+    parser.add_argument(
+        "--batch", type=int, default=16, help="batch sizes for each gpus"
+    )
+    parser.add_argument(
+        "--n_sample",
+        type=int,
+        default=64,
+        help="number of the samples generated during training",
+    )
+    parser.add_argument(
+        "--size", type=int, default=256, help="image sizes for the model"
+    )
+    parser.add_argument(
+        "--r1", type=float, default=10, help="weight of the r1 regularization"
+    )
+    parser.add_argument(
+        "--path_regularize",
+        type=float,
+        default=2,
+        help="weight of the path length regularization",
+    )
+    parser.add_argument(
+        "--path_batch_shrink",
+        type=int,
+        default=2,
+        help="batch size reducing factor for the path length regularization (reduce memory consumption)",
+    )
+    parser.add_argument(
+        "--d_reg_every",
+        type=int,
+        default=16,
+        help="interval of the applying r1 regularization",
+    )
+    parser.add_argument(
+        "--g_reg_every",
+        type=int,
+        default=4,
+        help="interval of the applying path length regularization",
+    )
+    parser.add_argument(
+        "--mixing", type=float, default=0.9, help="probability of latent code mixing"
+    )
+    parser.add_argument(
+        "--ckpt",
+        type=str,
+        default=None,
+        help="path to the checkpoints to resume training",
+    )
+    parser.add_argument("--lr", type=float, default=0.002, help="learning rate")
+    parser.add_argument(
+        "--channel_multiplier",
+        type=int,
+        default=2,
+        help="channel multiplier factor for the model. config-f = 2, else = 1",
+    )
+    parser.add_argument(
+        "--wandb", action="store_true", help="use weights and biases logging"
+    )
+    parser.add_argument(
+        "--local_rank", type=int, default=0, help="local rank for distributed training"
+    )
+    parser.add_argument(
+        "--augment", action="store_true", help="apply non leaking augmentation"
+    )
+    parser.add_argument(
+        "--augment_p",
+        type=float,
+        default=0,
+        help="probability of applying augmentation. 0 = use adaptive augmentation",
+    )
+    parser.add_argument(
+        "--ada_target",
+        type=float,
+        default=0.6,
+        help="target augmentation probability for adaptive augmentation",
+    )
+    parser.add_argument(
+        "--ada_length",
+        type=int,
+        default=500 * 1000,
+        help="target duraing to reach augmentation probability for adaptive augmentation",
+    )
+    parser.add_argument(
+        "--ada_every",
+        type=int,
+        default=256,
+        help="probability update interval of the adaptive augmentation",
+    )
 
     args = parser.parse_args()
 
@@ -377,6 +442,12 @@ if __name__ == "__main__":
     args.n_mlp = 8
 
     args.start_iter = 0
+
+    if args.arch == 'stylegan2':
+        from model import Generator, Discriminator
+
+    elif args.arch == 'swagan':
+        from swagan import Generator, Discriminator
 
     generator = Generator(
         args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier

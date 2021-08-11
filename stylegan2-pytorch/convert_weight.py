@@ -137,10 +137,10 @@ def discriminator_fill_statedict(statedict, vars, size):
     return statedict
 
 
-def fill_statedict(state_dict, vars, size):
+def fill_statedict(state_dict, vars, size, n_mlp):
     log_size = int(math.log(size, 2))
 
-    for i in range(8):
+    for i in range(n_mlp):
         update(state_dict, convert_dense(vars, f"G_mapping/Dense{i}", f"style.{i + 1}"))
 
     update(
@@ -200,12 +200,28 @@ def fill_statedict(state_dict, vars, size):
 if __name__ == "__main__":
     device = "cuda"
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--repo", type=str, required=True)
-    parser.add_argument("--gen", action="store_true")
-    parser.add_argument("--disc", action="store_true")
-    parser.add_argument("--channel_multiplier", type=int, default=2)
-    parser.add_argument("path", metavar="PATH")
+    parser = argparse.ArgumentParser(
+        description="Tensorflow to pytorch model checkpoint converter"
+    )
+    parser.add_argument(
+        "--repo",
+        type=str,
+        required=True,
+        help="path to the offical StyleGAN2 repository with dnnlib/ folder",
+    )
+    parser.add_argument(
+        "--gen", action="store_true", help="convert the generator weights"
+    )
+    parser.add_argument(
+        "--disc", action="store_true", help="convert the discriminator weights"
+    )
+    parser.add_argument(
+        "--channel_multiplier",
+        type=int,
+        default=2,
+        help="channel multiplier factor. config-f = 2, else = 1",
+    )
+    parser.add_argument("path", metavar="PATH", help="path to the tensorflow weights")
 
     args = parser.parse_args()
 
@@ -221,9 +237,15 @@ if __name__ == "__main__":
 
     size = g_ema.output_shape[2]
 
-    g = Generator(size, 512, 8, channel_multiplier=args.channel_multiplier)
+    n_mlp = 0
+    mapping_layers_names = g_ema.__getstate__()['components']['mapping'].list_layers()
+    for layer in mapping_layers_names:
+        if layer[0].startswith('Dense'):
+            n_mlp += 1
+
+    g = Generator(size, 512, n_mlp, channel_multiplier=args.channel_multiplier)
     state_dict = g.state_dict()
-    state_dict = fill_statedict(state_dict, g_ema.vars, size)
+    state_dict = fill_statedict(state_dict, g_ema.vars, size, n_mlp)
 
     g.load_state_dict(state_dict)
 
@@ -232,9 +254,9 @@ if __name__ == "__main__":
     ckpt = {"g_ema": state_dict, "latent_avg": latent_avg}
 
     if args.gen:
-        g_train = Generator(size, 512, 8, channel_multiplier=args.channel_multiplier)
+        g_train = Generator(size, 512, n_mlp, channel_multiplier=args.channel_multiplier)
         g_train_state = g_train.state_dict()
-        g_train_state = fill_statedict(g_train_state, generator.vars, size)
+        g_train_state = fill_statedict(g_train_state, generator.vars, size, n_mlp)
         ckpt["g"] = g_train_state
 
     if args.disc:
@@ -277,4 +299,3 @@ if __name__ == "__main__":
     utils.save_image(
         img_concat, name + ".png", nrow=n_sample, normalize=True, range=(-1, 1)
     )
-
