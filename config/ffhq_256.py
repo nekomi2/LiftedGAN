@@ -43,7 +43,7 @@ batch_size = 8
 num_epochs = 10
 
 # Number of steps per epoch
-epoch_size = 5000
+epoch_size = 1500
 
 # learning rate
 learning_rate = 1e-4
