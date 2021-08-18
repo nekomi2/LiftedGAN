@@ -320,8 +320,14 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                         normalize=True,
                         range=(-1, 1),
                     )
+                    wandb.Image(utils.make_grid(
+                        sample,
+                        nrow=int(args.n_sample ** 0.5),
+                        normalize=True,
+                        range=(-1, 1),
+                    ))
 
-            if i % 10000 == 0:
+            if i % 2000 == 0:
                 torch.save(
                     {
                         "g": g_module.state_dict(),
@@ -334,6 +340,7 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                     },
                     f"checkpoint{args.subfix}/{str(i).zfill(6)}.pt",
                 )
+                wandb.save('checkpoint/*.pt')
 
 
 if __name__ == "__main__":
