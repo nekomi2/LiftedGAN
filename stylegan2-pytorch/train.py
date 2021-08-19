@@ -320,12 +320,12 @@ def train(args, loader, generator, discriminator, g_optim, d_optim, g_ema, devic
                         normalize=True,
                         range=(-1, 1),
                     )
-                    wandb.Image(utils.make_grid(
+                    wandb.log({"Samples" : wandb.Image(utils.make_grid(
                         sample,
                         nrow=int(args.n_sample ** 0.5),
                         normalize=True,
                         range=(-1, 1),
-                    ))
+                    ))})
 
             if i % 2000 == 0:
                 torch.save(
@@ -354,7 +354,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--n_sample", type=int, default=64)
     parser.add_argument("--size", type=int, default=256)
-    parser.add_argument("--r1", type=float, default=10)
+    parser.add_argument("--r1", type=float, default=5)
     parser.add_argument("--path_regularize", type=float, default=2)
     parser.add_argument("--path_batch_shrink", type=int, default=2)
     parser.add_argument("--d_reg_every", type=int, default=16)
