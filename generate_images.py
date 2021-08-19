@@ -39,7 +39,7 @@ def main(args):
             recon_im = model.render(canon_depth, canon_albedo, canon_light, view, trans_map=trans_map)[0]
 
             outputs = recon_im.permute(0,2,3,1).cpu().numpy() * 0.5 + 0.5
-            outputs = np.minimum(1.0,np.maximum(0.0,outputs))
+            outputs = np.clip(outputs,0,1.0)
             outputs = (outputs*255).astype(np.uint8)
 
             for i in range(outputs.shape[0]):
@@ -53,7 +53,7 @@ if __name__ == '__main__':
     parser.add_argument("--output_dir", help="The output path",
                         type=str)
     parser.add_argument("--truncation", help="Truncation of latent styles",
-                        type=int, default=0.7)
+                        type=float, default=0.7)
     parser.add_argument("--n_samples", help="Number of images to generate",
                         type=int, default=50000)
     parser.add_argument("--batch_size", help="Number of images per mini batch",
