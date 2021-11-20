@@ -45,6 +45,16 @@ def write_summary(summary_writer, summary, global_step):
         summary_writer.add_video(k, v, global_step, fps=4)
     summary_writer.file_writer.flush()
 
+def write_summary_wandb(wandb, summary, global_step):
+    for k,v in summary['scalar'].items():
+        wandb.log({k:v},commit=False)
+    for k,v in summary['histogram'].items():
+        wandb.log({k:wandb.Histogram(v.detach().cpu())},commit=False)
+    for k,v in summary['image'].items():
+        wandb.log({k:wandb.Image(v)},commit=False)
+    for k,v in summary['video'].items():
+        wandb.log({k:wandb.Video(v)},commit=False)
+    wandb.log({'step':global_step},commit=True)
 
 def stack_images(*images):
     num_images = len(images)

@@ -17,6 +17,8 @@ from models.face_embedding import LResNet
 from models.perc_loss import PerceptualLoss
 from models import networks
 
+import wandb
+
 class LiftedGAN(object):
     def __init__(self):
         return
@@ -313,9 +315,10 @@ class LiftedGAN(object):
             input_im = self.generator(styles, input_is_latent=True, randomize_noise=False)
             input_im = input_im.clamp(min=-1,max=1).contiguous()
         summary['image']['input/input_im'] = make_grid(input_im[:b0].clamp(min=-1,max=1)*0.5+0.5, nrow=nrow, normalize=False)
-
         ### Estimation
         canon_depth, canon_albedo, canon_light, view, neutral_style, trans_map, canon_im_raw = self.estimate(styles)
+        
+        ###### Logging
         summary['image']['depth/canon_depth'] = make_grid(self.depth_inv_rescaler(canon_depth[:,None])[:b0], nrow=nrow, normalize=True)
         summary['image']['image/canon_im_raw'] = make_grid(canon_im_raw[:b0], nrow=nrow, normalize=True)
         summary['image']['image/canon_albedo'] = make_grid(canon_albedo[:b0], nrow=nrow, normalize=True)
@@ -331,7 +334,7 @@ class LiftedGAN(object):
         summary['histogram']['light/dx'] = canon_light[:,2]
         summary['histogram']['light/dy'] = canon_light[:,3]
         self.canon_depth = canon_depth
-
+        ######
 
         ### Rendering
         recon_im, canon_im, canon_normal, canon_shading, recon_im_mask, recon_depth = \
@@ -340,6 +343,7 @@ class LiftedGAN(object):
                 self.render(canon_depth.flip(2), canon_albedo.flip(3), canon_light, view, trans_map=trans_map)
         recon_im_mask_both = recon_im_mask * recon_im_mask_flip
 
+        #######Logging
         summary['image']['depth/recon_depth'] = make_grid(recon_depth[:b0].unsqueeze(1), nrow=nrow, normalize=True)
         summary['image']['depth/canon_normal'] = make_grid(canon_normal[:b0].permute(0,3,1,2), nrow=nrow, normalize=True)
         summary['image']['depth/canon_shading'] = make_grid(canon_shading[:b0], nrow=nrow, normalize=True)
@@ -350,7 +354,7 @@ class LiftedGAN(object):
         summary['image']['image/recon_im_flip'] = make_grid(recon_im_flip[:b0], nrow=nrow, normalize=True)
         self.canon_normal = canon_normal
         self.canon_im = canon_im
-
+        ############
 
         ### Rendering images from perturbed parameters
         _, perturbed_light_original, perturbed_view_original, perturb_angles = self.perturb(neutral_style, canon_light, view)
