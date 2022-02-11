@@ -29,7 +29,7 @@ EPS = 1e-7
 class Renderer(torch.nn.Module):
     def __init__(self, **cfgs):
         super().__init__()
-        self.device = cfgs.get('device', 'cuda')
+        self.device = cfgs.get('device', 'cpu')
         self.image_size = cfgs.get('image_size', 64)
         self.min_depth = cfgs.get('min_depth', 0.9)
         self.max_depth = cfgs.get('max_depth', 1.1)
@@ -61,7 +61,11 @@ class Renderer(torch.nn.Module):
 
 
         # Initialize an OpenGL perspective camera.
+<<<<<<< HEAD
         R = look_at_rotation(((0,0,0),), at=((0, 0, 1),), up=((0, -1, 0),),device=self.device)
+=======
+        R = look_at_rotation(((0,0,0),), at=((0, 0, 1),), up=((0, -1, 0),), device=self.device)
+>>>>>>> bd996e37e4ffec9f32a12ab8c0fc4e71106a56f2
         cameras = OpenGLPerspectiveCameras(device=self.device, fov=self.fov, R=R)
         lights = DirectionalLights(
             ambient_color=((1.0, 1.0, 1.0),), diffuse_color=((0.0, 0.0, 0.0),),
