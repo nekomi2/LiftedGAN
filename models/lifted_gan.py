@@ -200,7 +200,7 @@ class LiftedGAN(object):
         if self.config.clamp_border:
             _, h, w = canon_depth.shape
             border_with = 2
-            depth_border = torch.zeros(1,h,w-2*border_with,device=canon_depth.device)
+            depth_border = torch.zeros(1,h,w-2*border_with).to(canon_depth.device)
             depth_border = F.pad(depth_border, (border_with,border_with), mode='constant', value=1)
             canon_depth = canon_depth*(1-depth_border) + depth_border*self.border_depth
 
@@ -463,7 +463,7 @@ class LiftedGAN(object):
         return recon_normal
 
     def get_neutral_shading(self, canon_normal):
-        light_d = torch.tensor([[0,0,1]],device=canon_normal.device).repeat(canon_normal.size(0),1)
+        light_d = torch.tensor([[0,0,1]]).repeat(canon_normal.size(0),1).to(canon_normal.device)
         diffuse_shading = (canon_normal * light_d.view(-1,1,1,3)).sum(3).clamp(min=0).unsqueeze(1)
         neutral_shading = (0 + 0.8*diffuse_shading).repeat(1,3,1,1).permute(0,2,3,1) *2 - 1
         return neutral_shading
@@ -473,7 +473,7 @@ class LiftedGAN(object):
         b0 = min(12,self.config.batch_size)
         nrow = int(math.ceil(math.sqrt(b0)))
         with torch.no_grad():
-            v0 = torch.FloatTensor([-0.1*math.pi/180*60,0,0,0,0,0],device=self.canon_im.device).repeat(b0,1)
+            v0 = torch.FloatTensor([-0.1*math.pi/180*60,0,0,0,0,0]).to(self.canon_im.device).repeat(b0,1)
             neutral_shading = self.get_neutral_shading(self.canon_normal)
             canon_im_rotate = self.renderer.render_yaw(self.canon_im[:b0], self.canon_depth[:b0], v_before=v0, maxr=90).detach().cpu()/2.+0.5  # (B,T,C,H,W)
             canon_normal_rotate = self.renderer.render_yaw(self.canon_normal[:b0].permute(0,3,1,2), self.canon_depth[:b0], v_before=v0, maxr=90).detach().cpu()/2.+0.5  # (B,T,C,H,W)
